@@ -41,7 +41,7 @@ First calibrate the pH with buffer fluids. Measure the voltage at p0, using the 
 
 To connect with Arduino we will need an analog input (A0), power (5V) and two GND that actually in the sensor circuit are separated but we can use the same.
 
-Pinout
+Pinout <BR>
    To  Temperature     > not used <BR>
    Do  Limit pH Signal > not used <BR>
    Po  Analog pH value > A0 <BR>
