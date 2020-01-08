@@ -23,17 +23,17 @@ Code for the pH meter is based on: https://scidle.com/how-to-use-a-ph-sensor-wit
 First calibrate the pH with buffer fluids. Measure the voltage at p0, using the Arduino int value.
          y = ax + b // y = ph, x = voltage, a en b are to be determined
          
-         4,01 = a4,08 + b // eerste bufferoplossing is pH 4,01, gemeten voltage is 4,08
-         6,86 = a3,61 + b // tweede bufferoplossing is pH 6,86, gemeten voltage is 3,63
-            
+         4,01 = a4,08 + b // first buffersolution is pH 4,01, measured voltage is 4,08
+         6,86 = a3,61 + b // second buffersolution is pH 6,86, measured voltage is 3,63
+         
          b = 4,01 - a4,08
-         6,86 = a3,61 + (4,01 - a4,08) // substitueer waarde van b in de eerste vergelijking in de tweede vergelijking om a te berekenen
+         6,86 = a3,61 + (4,01 - a4,08) // substitute the value of b of the first equation into the second in order to calculate a
          6,86 = a3,61 + 4,01 - a4,08
          6,86 = 3,61a + 4,01 - 4,08a
          6,86 - 4,01 = a (3,61 - 4,08)
          2,85 = - 0,47a
          a = -6,06
-         b = 4,01 - (-6,064,08) = 28,75 // vul a in de eerste vergelijking om b te berekenen
+         b = 4,01 - (-6,064,08) = 28,75 // fill in a into the first equation to determine b
          
          => 6,86 = -6,063,61 + 28,75 =  // dubbelcheck
          
