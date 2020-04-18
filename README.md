@@ -1,5 +1,5 @@
 # arduino-iba-ph-stearing
-Hou Arduino gestuurd de pH van je IBA op peil
+Hou met behulp van een Arduino de pH van je IBA op peil
 
 De PH is dikwijls te laag door lage zuurtegraad van regenwater en stadswater. Minimale pH voor IBA's is wettelijk bepaald op 7,5. Met dit opzet monitor je de pH met een digitale pH meter en met een doseerpomp met NaOH 1 M (mol/l) om de pH te verhogen.
 
