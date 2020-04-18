@@ -1,16 +1,19 @@
 /**
- * Control the pH from your IBA (Indivuele Behandeling van Afvalwater) output
+ * Control the acidity from your IBA (Indivuele Behandeling van Afvalwater) by addding NaOH
  * 
  * Hardware:
  *  - Peristaltic pump 12V DC DIY Liquid Dosing Pump for Aquarium Lab Analytical
  *        https://www.aliexpress.com/item/32770860268.html
  *  - pH measurement with Liquid PH 0-14 Value Detection Regulator Sensor Module Monitoring Control Meter Tester + BNC PH Electrode Probe For Arduino
  *        https://www.aliexpress.com/item/32964738891.html
- * 
+ *  - I use an 4-port lcd
+ *  - Relais
+ *  - 12V power supply
  * 
  * Pump
  * ----
- * We drive the pump with Arduino 5V power supply: directly connect one pole to an digital outpin, the other to GND
+ * The pump functions with with Arduino 5V power supply (directly connect one pole to an digital outpin, the other to GND), but it hasn't enough power to run smoothly.
+ * The pump runs better with 12V. Attach a 12V power supply to a relais.
  * 
  * pH meter
  * --------
@@ -45,7 +48,20 @@
  *    G   Supply GND      > GND
  *    V+  Supply (5V)     > 5V
  * 
+ * Lcd
+ * ---
+ *  - Vcc > +5V
+ *  - Grnd > ground
+ *  - SCL > A5
+ *  - SDA > A4
  */
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+// Set the LCD address to 0x27 for a 16 chars and 2 line display
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+
 
 // Pump
 int pumpPin = 2;                  // the pin we will use as output
@@ -63,8 +79,14 @@ const float a = -6.06383; //@see "calibration"
 const float b = 28.75043; //@see "calibration"
 int buf[10],temp;
 
+
 void setup() {
   Serial.begin(57600);
+
+  // config lcd
+  lcd.begin();  // Turn on the blacklight
+  lcd.setBacklight((uint8_t)1);
+  
   pinMode(pumpPin, OUTPUT);   // initiate pump pin as output
   digitalWrite(pumpPin, LOW); // stop pump
   Serial.println("STARTED");
@@ -77,13 +99,16 @@ void loop() {
   Serial.print("pH = ");
   Serial.println(phValue); //  and send it to the serial port to see it in the serial monitor
 
+  printLcd(0, "pH=" + String(phValue));
+
   // when pH lower then 6.7: add NaOH 1 M
   if(phValue < 6.7) {
     // DOSE!
+    printLcd(1, "Dosing");
     runPump(pumpTime);
-    Serial.print("delaying...");
+    printLcd(1, "delaying...");
     delay(measurementDelayTime); // wait for the NaOH to take affect
-    Serial.println(" - starting");
+    printLcd(1, " - starting");
   } else {
     delay(20);
   }
@@ -136,4 +161,23 @@ float measurepH () {
   float phValue = a * pHVol + b;
 
   return phValue;
+}
+
+/* Easy way to communicate with lcd */
+void printLcd(int row, String value) {
+  Serial.println(value);
+  lcd.setCursor(0, row);
+  lcd.print(appendSpaces(value, 16));
+}
+
+/* Returns string of length len, by appending spaces to the right */
+String appendSpaces(String text, int len) {
+  String iText = text;
+  if(iText.length() > len) {
+    iText = iText.substring(1, 17);
+  }
+  while (iText.length() < len) {
+    iText.concat(" ");
+  };
+  return iText;
 }
