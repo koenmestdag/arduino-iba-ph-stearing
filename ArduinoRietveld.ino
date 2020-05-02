@@ -6,14 +6,15 @@
  *        https://www.aliexpress.com/item/32770860268.html
  *  - pH measurement with Liquid PH 0-14 Value Detection Regulator Sensor Module Monitoring Control Meter Tester + BNC PH Electrode Probe For Arduino
  *        https://www.aliexpress.com/item/32964738891.html
- *  - I use an 4-port lcd
+ *  - 4-port lcd
  *  - Relais
  *  - 12V power supply
+ *  - Pushbutton
  * 
  * Pump
  * ----
  * The pump functions with with Arduino 5V power supply (directly connect one pole to an digital outpin, the other to GND), but it hasn't enough power to run smoothly.
- * The pump runs better with 12V. Attach a 12V power supply to a relais.
+ * The pump runs better with 12V. Attach a 12V power supply to a relais, stear the relais with the Arduino.
  * 
  * pH meter
  * --------
@@ -54,6 +55,10 @@
  *  - Grnd > ground
  *  - SCL > A5
  *  - SDA > A4
+ *  
+ *  Button
+ *  ------
+ *  - Pushbutton attached to pin 3 from +5V
  */
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
@@ -62,9 +67,9 @@
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 enum eProgramModes {
-  TEST,       // program is running in test: pH values are random
+  TEST_PUMP,       // program is running in test: pH values are random
+  TEST_PH,       // program is running in test: pH values are random
   RUN,        // program is running!
-  RUN_VERBOSE,// program is displaying a lot of details
   CALIBRATE   // calibration mode: use buffers to calibrate the pH sensor
 };
 
@@ -88,6 +93,10 @@ float a = -4.91; //@see "calibration"
 float b = 25.61; //@see "calibration"
 int buf[10],temp;
 
+// button
+const int buttonModusPin = 3;     // we use the button to change modus TEST > RUN > RUN VERBOSE / CALIBRATE
+int buttonState;
+
 /**
  * Initialize
  */
@@ -100,6 +109,10 @@ void setup() {
   
   pinMode(pumpPin, OUTPUT);   // initiate pump pin as output
   digitalWrite(pumpPin, LOW); // stop pump
+
+  // initialize the pushbutton pin as an input:
+  pinMode(buttonModusPin, INPUT);
+
   Serial.println("STARTED");
 }
 
@@ -107,29 +120,78 @@ void setup() {
  * Run program
  */
 void loop() {
-  if(programMode == TEST) {
-    runTest();
-  } if(programMode == RUN) {
-    runMeasurement();
-  } if(programMode == CALIBRATE) {
-    runCalibration();
-    programMode = RUN;
+  // read the state of the pushbutton value:
+  buttonState = digitalRead(buttonModusPin);
+
+  // check if the pushbutton is pressed. If it is, the buttonState is HIGH:
+  if (buttonState == HIGH) {
+    String sModus;
+    if (programMode < CALIBRATE) {
+      programMode = programMode + 1;
+    } else {
+      programMode = TEST_PH;
+    }
+    switch (programMode) {
+      case TEST_PUMP:
+        sModus = "TESTING PUMP"
+        break;
+      case TEST_PH:
+        sModus = "TESTING PH"
+        break;
+      case RUN:
+        sModus = "NORMAL OPERATION"
+        break;
+      case CALIBRATE:
+        sModus = "CALIBRATION MODE"
+        break;
+      default:
+        break;
+      printLcd(0, sModus);
+      printLcd(1, "");
+      delay(1000);
+    }
   } else {
-    printLcd(1, "ERROR");
-    delay(1000);
+      switch (programMode) {
+        case TEST_PH:
+          runTestPump();
+          break;
+        case TEST_PUMP:
+          runTestPump();
+          break;
+        case RUN:
+          runMeasurement();
+          break;
+        case CALIBRATE:
+          runCalibration();
+          programMode = RUN; // Do not keep calibrating: change back to normal mode
+          break;
+        default:
+          printLcd(1, "ERROR MODE :(");
+          delay(1000);
+          break;
+    }
   }
 }
 
-void runTest() {
+void runTestPump() {
   float phValue = getTestpH();
-  printLcd(0, "pH=" + String(phValue));
-  runPump(pumpTime);
+  printLcd(1, "Random pH=" + String(phValue));
+  doseIfNeeded(phValue);
+}
+
+void runTestPH() {
+  float phValue = getpH();
+  printLcd(1, "pH=" + String(phValue));    
+  // No dosing!
 }
 
 void runMeasurement() {
   float phValue = getpH();
   printLcd(0, "pH=" + String(phValue));
-  
+  doseIfNeeded(phValue);  
+}
+
+void doseIfNeeded(float phValue) {
   // when pH lower then 6.7: add NaOH 1 M
   if(phValue < 6.7) {
     // DOSE!
