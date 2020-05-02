@@ -133,16 +133,16 @@ void loop() {
     }
     switch (programMode) {
       case TEST_PUMP:
-        sModus = "TESTING PUMP"
+        sModus = "TESTING PUMP";
         break;
       case TEST_PH:
-        sModus = "TESTING PH"
+        sModus = "TESTING PH";
         break;
       case RUN:
-        sModus = "NORMAL OPERATION"
+        sModus = "NORMAL OPERATION";
         break;
       case CALIBRATE:
-        sModus = "CALIBRATION MODE"
+        sModus = "CALIBRATION MODE";
         break;
       default:
         break;
