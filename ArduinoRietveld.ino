@@ -19,22 +19,22 @@
  * --------
  * Code for the pH meter is based on: https://scidle.com/how-to-use-a-ph-sensor-with-arduino/
  * 
- * First calibrate the pH with buffer fluids. Measure the voltage at p0, using the Arduino int value.
+ * Before starting up, always first calibrate the pH with buffer fluids. Measure the voltage at p0, using the Arduino int value.
  *          y = ax + b // y = ph, x = voltage, a en b are to be determined
  *          
- *          4,01 = a * 4,08 + b // eerste bufferoplossing is pH 4,01, gemeten voltage is 4,08
- *          6,86 = a * 3,61 + b // tweede bufferoplossing is pH 6,86, gemeten voltage is 3,63
+ *          4,01 = a * 4,40 + b // eerste bufferoplossing is pH 4,01, gemeten voltage is 4,40
+ *          6,86 = a * 3,82 + b // tweede bufferoplossing is pH 6,86, gemeten voltage is 3,82
             
- *          b = 4,01 - a * 4,08
- *          6,86 = a * 3,61 + (4,01 - a * 4,08) // substitueer waarde van b in de eerste vergelijking in de tweede vergelijking om a te berekenen
- *          6,86 = a * 3,61 + 4,01 - a * 4,08
- *          6,86 = 3,61a + 4,01 - 4,08a
- *          6,86 - 4,01 = a (3,61 - 4,08)
- *          2,85 = - 0,47 * a
- *          a = -6,06
- *          b = 4,01 - (-6,06 * 4,08) = 28,75 // vul a in de eerste vergelijking om b te berekenen
+ *          b = 4,01 - a * 4,40
+ *          6,86 = a * 3,82 + (4,01 - a * 4,40) // substitueer waarde van b in de eerste vergelijking in de tweede vergelijking om a te berekenen
+ *          6,86 = a * 3,82 + 4,01 - a * 4,40
+ *          6,86 = 3,82a + 4,01 - 4,40a
+ *          6,86 - 4,01 = a (3,82 - 4,40)
+ *          2,85 = - 0,58 * a
+ *          a = -4,91
+ *          b = 4,01 - (-4,91 * 4,40) = 25,61 // vul a in de eerste vergelijking om b te berekenen
  *          
- *          => 6,86 = -6,06 * 3,61 + 28,75 =  // dubbelcheck
+ *          => 6,86 = -4,91 * 3,82 + 25,61 =  // dubbelcheck
  *          
  *          (You can use arduino_ph_berekening.xls to compute the values)
  * 
@@ -61,7 +61,15 @@
 // Set the LCD address to 0x27 for a 16 chars and 2 line display
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
+enum eProgramModes {
+  TEST,       // program is running in test: pH values are random
+  RUN,        // program is running!
+  RUN_VERBOSE,// program is displaying a lot of details
+  CALIBRATE   // calibration mode: use buffers to calibrate the pH sensor
+};
 
+enum eProgramModes programMode = RUN;
+unsigned long startTime = millis();
 
 // Pump
 int pumpPin = 2;                  // the pin we will use as output
@@ -70,16 +78,19 @@ float alarmMax = 7.5;             // sound alarm when pH level is higher
 float lowPh = 6.5;                // start adding pH+ (NaOH 1M)
 int pumpTime = 2000;              // the amount of time tot pump NaOH into the barrel, whithout measuring
 int measurementDelayTime = 5000; // the amount of time to wait after pumping in order to stabilize pH
+int timesPumped = 0;
 
 // pH
 const int analogInPin = A0; 
 int sensorValue = 0; 
 unsigned long int avgValue; 
-const float a = -6.06383; //@see "calibration"
-const float b = 28.75043; //@see "calibration"
+float a = -4.91; //@see "calibration"
+float b = 25.61; //@see "calibration"
 int buf[10],temp;
 
-
+/**
+ * Initialize
+ */
 void setup() {
   Serial.begin(57600);
 
@@ -93,35 +104,106 @@ void setup() {
 }
 
 /**
+ * Run program
  */
 void loop() {
-  float phValue = measurepH(); // get the pH
-  Serial.print("pH = ");
-  Serial.println(phValue); //  and send it to the serial port to see it in the serial monitor
+  if(programMode == TEST) {
+    runTest();
+  } if(programMode == RUN) {
+    runMeasurement();
+  } if(programMode == CALIBRATE) {
+    runCalibration();
+    programMode = RUN;
+  } else {
+    printLcd(1, "ERROR");
+    delay(1000);
+  }
+}
 
+void runTest() {
+  float phValue = getTestpH();
   printLcd(0, "pH=" + String(phValue));
+  runPump(pumpTime);
+}
 
+void runMeasurement() {
+  float phValue = getpH();
+  printLcd(0, "pH=" + String(phValue));
+  
   // when pH lower then 6.7: add NaOH 1 M
   if(phValue < 6.7) {
     // DOSE!
-    printLcd(1, "Dosing");
+    printLcd(1, "Dose " + String(timesPumped++) + "/" + String(startTime / 60000) + "'");
     runPump(pumpTime);
-    printLcd(1, "delaying...");
+    printLcd(1, "delaying " + String(measurementDelayTime) + "...");
     delay(measurementDelayTime); // wait for the NaOH to take affect
-    printLcd(1, " - starting");
+    printLcd(1, "done");
   } else {
-    delay(20);
+    delay(1000);  // pH is stable! :)
   }
+}
+
+void runCalibration() {
+  float pHVoltage401;
+  float pHVoltage686;
+  float pA;
+  float pB;
+  
+  printLcd(1, "");
+  displayPauzeMessage(0, "CALIBRATION IN", 20);
+
+  printLcd(0, "**CALIBRATING**");
+  printLcd(1, "");
+  delay(1000);
+
+  // calibrate 4,01
+  printLcd(0, "PUT pH SENSOR IN BUFFER 4,01");
+  displayPauzeMessage(1, "IN ", 20);
+  pHVoltage401 = getSensorVoltage();
+  printLcd(1, "VOLTAGE " + String(pHVoltage401));
+  delay(1000);
+
+  // calibrate 6,86
+  printLcd(0, "PUT pH SENSOR IN BUFFER 6,86");
+  displayPauzeMessage(1, "IN ", 20);
+  pHVoltage686 = getSensorVoltage();
+  printLcd(1, "VOLTAGE " + String(pHVoltage686));
+  delay(1000);
+
+  pA = (6,86 - 4,01) / (pHVoltage686 - pHVoltage401);  // use the pH equation
+  pB = 4,01 - (pA * pHVoltage401);
+
+  if(pA < 3 && pA > -7 && pB > 20 && pB < 30) {
+    a = pA;
+    b = pB;
+    printLcd(0, "CAL. ENDED");
+    printLcd(1, "a=" + String(a) + " b=" + String(b));
+  } else {
+    printLcd(0, "CAL. FAULTED!!!");
+    printLcd(1, "a=" + String(pA) + " b=" + String(pB));
+  }
+
+  delay(5000);
+  
+}
+
+/* Test program */
+float getTestpH() {
+  long randNumber;
+  printLcd(1, "RUNNING IN TEST!");
+  delay(1000);
+  randNumber = random(0, 1400);
+  return (randNumber / 100);
 }
 
 /**
  * pRunTime : the time to pump
  */
 void runPump(int pRunTime) {
-  float startTime = millis();
+  float pPumpStartTime = millis();
   digitalWrite(pumpPin, HIGH);
   Serial.println("pumping started");
-  while(millis() < startTime + pRunTime) {
+  while(millis() < pPumpStartTime + pRunTime) {
     // keep on dosing
   }
   digitalWrite(pumpPin, LOW);
@@ -131,13 +213,26 @@ void runPump(int pRunTime) {
 /**
  * Gets pH result from pH sensor 
  * 
- * The code consists of taking 10 samples of the analogue input A0, ordering them and discarding the highest and 
- * the lowest and calculating the mean with the six remaining samples by converting this value to voltage in the 
- * variable pHVol, then using the equation that we have calculated with the pH reference values we convert pHVol
+ * We get the voltage of the sensor, then using the equation that we have calculated with the pH reference values we convert pHVol
  * to pHValue.
  */
-float measurepH () {
-  // read 10 times info buf[]
+float getpH () {
+  float pHVol = getSensorVoltage();
+  delay(1000);
+  
+  float phValue = a * pHVol + b;
+
+  return phValue;
+}
+
+/**
+ * Returns the voltage measured by the pH sensor
+ * The code consists of taking 10 samples of the analogue input A0, ordering them and discarding the highest and 
+ * the lowest and calculating the mean with the six remaining samples by converting this value to voltage in the 
+ * variable pHVol.
+ */
+float getSensorVoltage() {
+    // read 10 times info buf[]
   for(int i = 0; i < 10; i++) { 
      buf[i] = analogRead(analogInPin);
      delay(10);
@@ -155,12 +250,11 @@ float measurepH () {
   }
 
   // calculate average, starting with third value and also discarting last 2
-  avgValue=0;
+  avgValue = 0;
   for(int i = 2; i < 8; i++) avgValue += buf[i];
   float pHVol = (float)avgValue * 5.0 / 1024 / 6; // 6 measurements: convert measured int to voltage (0-1024 range to 0-5V range), use this value also to calibrate your pH sensor
-  float phValue = a * pHVol + b;
 
-  return phValue;
+  return pHVol;
 }
 
 /* Easy way to communicate with lcd */
@@ -180,4 +274,11 @@ String appendSpaces(String text, int len) {
     iText.concat(" ");
   };
   return iText;
+}
+
+void displayPauzeMessage(int row, String text, int delaySeconds) {
+  for(int i = delaySeconds; i > 0; i--) {
+    printLcd(row, text + " " + String(i));
+    delay(1000);
+  }
 }
