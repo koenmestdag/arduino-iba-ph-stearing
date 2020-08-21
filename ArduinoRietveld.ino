@@ -23,21 +23,21 @@
  * Before starting up, always first calibrate the pH with buffer fluids. Measure the voltage at p0, using the Arduino int value.
  *          y = ax + b // y = ph, x = voltage, a en b are to be determined
  *          
- *          4,01 = a * 4,40 + b // eerste bufferoplossing is pH 4,01, gemeten voltage is 4,40
- *          6,86 = a * 3,82 + b // tweede bufferoplossing is pH 6,86, gemeten voltage is 3,82
+ *          4,01 = a * 4,40 + b // first buffering solution has pH 4,01, f.e. measured voltage is 4,40
+ *          6,86 = a * 3,82 + b // second buffering solution has pH 6,86, f.e. measured voltage is 3,82
             
  *          b = 4,01 - a * 4,40
- *          6,86 = a * 3,82 + (4,01 - a * 4,40) // substitueer waarde van b in de eerste vergelijking in de tweede vergelijking om a te berekenen
+ *          6,86 = a * 3,82 + (4,01 - a * 4,40) // substitute value of b of the first equation, into the second in order to calculate a
  *          6,86 = a * 3,82 + 4,01 - a * 4,40
  *          6,86 = 3,82a + 4,01 - 4,40a
  *          6,86 - 4,01 = a (3,82 - 4,40)
  *          2,85 = - 0,58 * a
  *          a = -4,91
- *          b = 4,01 - (-4,91 * 4,40) = 25,61 // vul a in de eerste vergelijking om b te berekenen
+ *          b = 4,01 - (-4,91 * 4,40) = 25,61 // fill in the value of a into the first equation in order to calculate b
  *          
  *          => 6,86 = -4,91 * 3,82 + 25,61 =  // dubbelcheck
  *          
- *          (You can use arduino_ph_berekening.xls to compute the values)
+ *          (You can use arduino_ph_berekening.xls to compute the values, or use the built-in calibration mode ;-) )
  * 
  * To connect with Arduino we will need an analog input (A0), power (5V) and two GND that actually in the sensor circuit are separated but we can use the same.
  * 
@@ -58,7 +58,7 @@
  *  
  *  Button
  *  ------
- *  - Pushbutton attached to pin 3 from +5V
+ *  - Pushbutton from +5V attached to pin 3 and to 10K ohm resistor (https://www.arduino.cc/en/tutorial/button)
  */
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
@@ -67,10 +67,10 @@
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 enum eProgramModes {
-  TEST_PUMP,       // program is running in test: pH values are random
-  TEST_PH,       // program is running in test: pH values are random
-  RUN,        // program is running!
-  CALIBRATE   // calibration mode: use buffers to calibrate the pH sensor
+  TEST_PUMP = 0,  // program is running in test: pH values are random, without pumping
+  TEST_PH = 1,    // program is running in test: pH values measured, without pumping
+  RUN = 2,        // program is running!
+  CALIBRATE = 3   // calibration mode: use buffers to calibrate the pH sensor
 };
 
 enum eProgramModes programMode = RUN;
@@ -82,15 +82,15 @@ float alarmMin = 6.4;             // sound alarm when pH level is lower
 float alarmMax = 7.5;             // sound alarm when pH level is higher
 float lowPh = 6.5;                // start adding pH+ (NaOH 1M)
 int pumpTime = 2000;              // the amount of time tot pump NaOH into the barrel, whithout measuring
-int measurementDelayTime = 5000; // the amount of time to wait after pumping in order to stabilize pH
+int measurementDelayTime = 5000;  // the amount of time to wait after pumping in order to stabilize pH
 int timesPumped = 0;
 
 // pH
 const int analogInPin = A0; 
 int sensorValue = 0; 
 unsigned long int avgValue; 
-float a = -4.91; //@see "calibration"
-float b = 25.61; //@see "calibration"
+float a = -4.91;        //@see "calibration"
+float b = 25.61;        //@see "calibration"
 int buf[10],temp;
 
 // button
@@ -125,11 +125,12 @@ void loop() {
 
   // check if the pushbutton is pressed. If it is, the buttonState is HIGH:
   if (buttonState == HIGH) {
+    Serial.println("BUTTON PUSHED!");
     String sModus;
     if (programMode < CALIBRATE) {
-      programMode = programMode + 1;
+      programMode = eProgramModes((int)programMode + 1); // increment mode
     } else {
-      programMode = TEST_PH;
+      programMode = TEST_PUMP; //return to the first programMode
     }
     switch (programMode) {
       case TEST_PUMP:
@@ -145,28 +146,34 @@ void loop() {
         sModus = "CALIBRATION MODE";
         break;
       default:
+        sModus = "** ERROR MODE **";
         break;
-      printLcd(0, sModus);
-      printLcd(1, "");
-      delay(1000);
+      printLcd(0, "New mode");
+      printLcd(1, sModus);
+      delay(2000);
     }
   } else {
+      Serial.println("No button pushed");
       switch (programMode) {
         case TEST_PH:
+          Serial.println("TEST_PH");
           runTestPump();
           break;
         case TEST_PUMP:
+          Serial.println("TEST_PUMP");
           runTestPump();
           break;
         case RUN:
+          Serial.println("RUN");
           runMeasurement();
           break;
         case CALIBRATE:
+          Serial.println("CALIBRATE");
           runCalibration();
           programMode = RUN; // Do not keep calibrating: change back to normal mode
           break;
         default:
-          printLcd(1, "ERROR MODE :(");
+          printLcd(1, "ERROR MODE :-(");
           delay(1000);
           break;
     }
@@ -211,49 +218,61 @@ void runCalibration() {
   float pA;
   float pB;
   
-  printLcd(1, "");
-  displayPauzeMessage(0, "CALIBRATION IN", 20);
-
-  printLcd(0, "**CALIBRATING**");
-  printLcd(1, "");
-  delay(1000);
-
-  // calibrate 4,01
-  printLcd(0, "PUT pH SENSOR IN BUFFER 4,01");
-  displayPauzeMessage(1, "IN ", 20);
-  pHVoltage401 = getSensorVoltage();
-  printLcd(1, "VOLTAGE " + String(pHVoltage401));
-  delay(1000);
-
-  // calibrate 6,86
-  printLcd(0, "PUT pH SENSOR IN BUFFER 6,86");
-  displayPauzeMessage(1, "IN ", 20);
-  pHVoltage686 = getSensorVoltage();
-  printLcd(1, "VOLTAGE " + String(pHVoltage686));
-  delay(1000);
-
-  pA = (6,86 - 4,01) / (pHVoltage686 - pHVoltage401);  // use the pH equation
-  pB = 4,01 - (pA * pHVoltage401);
-
-  if(pA < 3 && pA > -7 && pB > 20 && pB < 30) {
-    a = pA;
-    b = pB;
-    printLcd(0, "CAL. ENDED");
-    printLcd(1, "a=" + String(a) + " b=" + String(b));
+  printLcd(0, "CALIBRATION MODE");
+  printLcd(1, "PRESS BUTTON TO CANCEL");
+  delay(2000);
+  
+  if(digitalRead(buttonModusPin) == HIGH){
+    programMode = RUN; //return to RUN
+    printLcd(1, "CAL. CANCELLED");
+    delay(1000);
   } else {
-    printLcd(0, "CAL. FAULTED!!!");
-    printLcd(1, "a=" + String(pA) + " b=" + String(pB));
-  }
 
-  delay(5000);
+    displayPauzeMessage(0, "CALIBRATION IN ", 20);
+    printLcd(1, "");
+  
+    printLcd(0, "**CALIBRATING**");
+    printLcd(1, "");
+    delay(1000);
+  
+    // calibrate 4,01
+    printLcd(0, "PUT pH SENSOR IN");
+    displayPauzeMessage(1, "BUFFER 4,01 ", 20);
+    pHVoltage401 = getSensorVoltage();
+    printLcd(0, "4,01 FINISHED");
+    printLcd(1, "VOLTAGE " + String(pHVoltage401));
+    delay(1000);
+  
+    // calibrate 6,86
+    printLcd(0, "PUT pH SENSOR IN");
+    displayPauzeMessage(1, "BUFFER 6,86 ", 20);
+    displayPauzeMessage(1, "IN ", 20);
+    pHVoltage686 = getSensorVoltage();
+    printLcd(0, "6,86 FINISHED");
+    printLcd(1, "VOLTAGE " + String(pHVoltage686));
+    delay(1000);
+  
+    pA = (6,86 - 4,01) / (pHVoltage686 - pHVoltage401);  // use the pH equation
+    pB = 4,01 - (pA * pHVoltage401);
+  
+    if (pA < 3 && pA > -7 && pB > 20 && pB < 30) {
+      a = pA;
+      b = pB;
+      printLcd(0, "CAL. ENDED");
+      printLcd(1, "a=" + String(a) + " b=" + String(b));
+    } else {
+      printLcd(0, "CAL. FAULTED!!!");
+      printLcd(1, "a=" + String(pA) + " b=" + String(pB));
+    }
+  
+    delay(5000);
+  }
   
 }
 
 /* Test program */
 float getTestpH() {
   long randNumber;
-  printLcd(1, "RUNNING IN TEST!");
-  delay(1000);
   randNumber = random(0, 1400);
   return (randNumber / 100);
 }
@@ -321,7 +340,7 @@ float getSensorVoltage() {
 
 /* Easy way to communicate with lcd */
 void printLcd(int row, String value) {
-  Serial.println(value);
+  Serial.println("printLcd [" + value + "]");
   lcd.setCursor(0, row);
   lcd.print(appendSpaces(value, 16));
 }
